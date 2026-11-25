@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+*{
+    scroll-behavior: smooth;
+}
+
+.active {
+    color: #7c3aed;
+    border-bottom-width: 2px;
+    border-color: #7c3aed;
+    padding-bottom: 0.25rem;
+}
