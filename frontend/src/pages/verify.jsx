@@ -25,6 +25,7 @@ const Verify = () => {
 
       if (canceled === "true" || !appointmentId) {
         navigate("/doctors");
+        window.location.reload();
         return;
       }
 
@@ -36,6 +37,7 @@ const Verify = () => {
       } else {
         toast.error(response.data.message || "Unable to verify payment");
         navigate('/doctors');
+        window.location.reload();
       }
 
     } catch (error) {

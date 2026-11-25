@@ -128,7 +128,6 @@ const Detail = () => {
     return doctors.filter((doc) => doc.speciality === doctor.speciality && doc._id !== doctor._id);
   }, [doctors, id]);
 
-
   if (!doctor) {
     return (
       <div className='w-full h-screen flex justify-center items-center'>

@@ -60,44 +60,53 @@ const bookAppointment = async (req, res) => {
     }
 }
 
-const createStripeSession = async (appointment) => {
-    // Stripe Checkout's line_items must be an array
-    // each line item must include a quantity
-    const line_items = appointment.map((item) => ({
-        price_data: {
-            currency: currency,
-            product_data: {
-                name: item.name,
-            },
-            unit_amount: Math.round(Number(item.fees) * 100),
-        },
-        quantity: 1,
-    }));
 
-    return stripe.checkout.sessions.create(
-        {
-            mode: "payment",
-            line_items,
-            success_url: `${frontendUrl}/verify?success=true&appointmentId=${appointment._id}`,
-            cancel_url: `${frontendUrl}/verify?canceled=true&appointmentId=${appointment._id}`,
-            // Metadata for the Checkout Session.
-            metadata: {
-                appointmentId: appointment._id.toString(),
-                userId: req.user._id.toString(),
-            },
-            // Metadata for the PaymentIntent used by our webhook.
-            payment_intent_data: {
-                metadata: {
-                    appointmentId: appointment._id.toString(),
-                    userId: req.user._id.toString(),
-                },
-            },
+const createStripeSession = async (appointment) => {
+  const fee = Number(appointment.amount);
+
+  if (!Number.isFinite(fee) || fee <= 0) {
+    throw new Error("Invalid appointment fee");
+  }
+
+  const line_items = [
+    {
+      price_data: {
+        currency,
+        product_data: {
+          name: `Doctor Appointment - ${appointment.docData.name}`,
         },
-        {
-            idempotencyKey: `checkout-session-${appointment._id}`,
-        }
-    );
+        unit_amount: Math.round(fee * 100),
+      },
+      quantity: 1,
+    },
+  ];
+
+  return stripe.checkout.sessions.create(
+    {
+      mode: "payment",
+      line_items,
+
+      success_url: `${frontendUrl}/verify?success=true&appointmentId=${appointment._id}`,
+      cancel_url: `${frontendUrl}/verify?canceled=true&appointmentId=${appointment._id}`,
+
+      metadata: {
+        appointmentId: appointment._id.toString(),
+        userId: appointment.userId.toString(),
+      },
+
+      payment_intent_data: {
+        metadata: {
+          appointmentId: appointment._id.toString(),
+          userId: appointment.userId.toString(),
+        },
+      },
+    },
+    {
+      idempotencyKey: `checkout-session-${appointment._id}`,
+    }
+  );
 };
+
 
 const bookStripeAppointment = async (req, res) => {
     try {
@@ -111,8 +120,19 @@ const bookStripeAppointment = async (req, res) => {
             return res.status(400).json({ success: false, message: "Please choose payment method" });
         }
 
-        if (!idempotencyKey) {
-            return res.status(400).json({ success: false, message: "A valid idempotency UUID is required" });
+        const isValidUUID =
+            typeof idempotencyKey === "string" &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+                idempotencyKey,
+            );
+
+        if (!isValidUUID) {
+            return res
+                .status(400)
+                .json({
+                    success: false,
+                    message: "A valid idempotency UUID is required",
+                });
         }
 
         const existingAppointment = await Appointment.findOne({
@@ -188,25 +208,25 @@ const handlePaymentIntent = async (paymentIntentId, payment) => {
 
     const { appointmentId, userId } = paymentIntent.metadata;
     if (!appointmentId || !userId) {
-        return res.json({ success: false, message: "Payment metadata is missing" });
+        throw new Error("Payment metadata is missing");
     }
     const appointment = await Appointment.findOne({
         _id: appointmentId,
         userId,
     });
     if (!appointment) {
-        return res.json({ success: false, message: "Appointment not found" });
+        throw new Error("Appointment not found");
     }
     // Never mark an appointment paid unless Stripe confirms it.
     if (payment && paymentIntent.status !== "succeeded") {
-        return res.json({ success: false, message: "Payment is not successfull" });
+        throw new Error("Payment is not successful");
     }
     if (payment && (paymentIntent.currency !== currency || paymentIntent.amount_received !== Math.round(appointment.amount * 100))) {
-        return res.json({ success: false, message: "Payment amount or currency mismatch" });
+        throw new Error("Payment amount or currency mismatch");
     }
     // Never downgrade a paid order.
     if (appointment.payment) {
-        return;
+        throw new Error("Appointment is already paid");
     }
     appointment.payment = payment;
     await appointment.save();
